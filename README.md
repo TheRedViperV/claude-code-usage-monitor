@@ -1,4 +1,4 @@
-# Token Meter for Claude Code
+# Claude Desktop Usage Monitor
 
 ![Token Meter above the Claude Code prompt: Session 71%, Weekly 51%, Context 17%](assets/screenshot-bar.png)
 
@@ -8,16 +8,16 @@ A live usage bar above the chat box in Claude Code. It shows three things at a g
 - **Weekly**: your 7-day usage limit, with the time until it resets
 - **Context**: how full the current chat's context window is
 
-Session and Weekly limits belong to your account, so every open chat shows the latest figures, even one you haven't sent a message in yet. The bar adapts to the window width. Limits appear on Claude subscription plans (Pro, Max); with an API key only Context is shown.
+Session and Weekly limits belong to your account, so every open chat shows the latest figures, even one you haven't sent a message in yet. In the desktop app's Code tab a brand-new chat shows the bar after your first message, when its session starts; the Chat tab doesn't run plugins, so the bar isn't there. The bar adapts to the window width. Limits appear on Claude subscription plans (Pro, Max); with an API key only Context is shown.
 
 ## Install
 
-**Claude desktop app (Code tab):** click **+** next to the prompt box, then **Plugins** → **Add marketplace**, enter `TheRedViperV/claude-token-meter`, then **Add plugin** and pick **token-meter**.
+**Claude desktop app (Code tab):** click **+** next to the prompt box, then **Plugins** → **Add marketplace**, enter `TheRedViperV/claude-desktop-usage-monitor`, then **Add plugin** and pick **token-meter**.
 
 **Claude Code in a terminal**, at the prompt:
 
 ```
-/plugin install token-meter --marketplace TheRedViperV/claude-token-meter
+/plugin install token-meter --marketplace TheRedViperV/claude-desktop-usage-monitor
 ```
 
 Answer `y` to add the marketplace, then choose the user scope so it appears in every session.
@@ -25,7 +25,7 @@ Answer `y` to add the marketplace, then choose the user scope so it appears in e
 **From a shell:**
 
 ```
-claude plugin install token-meter --marketplace TheRedViperV/claude-token-meter
+claude plugin install token-meter --marketplace TheRedViperV/claude-desktop-usage-monitor
 ```
 
 ## License

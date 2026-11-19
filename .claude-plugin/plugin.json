@@ -4,6 +4,6 @@
   "description": "Live usage bar above the chat box: 5-hour session limit, weekly limit and context fill, each with a 3D activity ring.",
   "author": { "name": "TheRedViperV" },
   "license": "MIT",
-  "homepage": "https://github.com/TheRedViperV/claude-token-meter",
+  "homepage": "https://github.com/TheRedViperV/claude-desktop-usage-monitor",
   "types": "./types/index.d.ts"
 }
