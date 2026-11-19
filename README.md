@@ -38,12 +38,30 @@ claude plugin install usage-monitor@claude-code-usage-monitor
 
 Answer `y` to add the marketplace, then choose the user scope so it appears in every session.
 
+### Updating
+
+To get a newer version, refresh the marketplace, update the plugin, then restart the app or start a new chat:
+
+```
+claude plugin marketplace update claude-code-usage-monitor
+```
+
+```
+claude plugin update usage-monitor@claude-code-usage-monitor
+```
+
+If the update says `Plugin "usage-monitor" not found`, that computer still has the old name. Follow the steps below instead.
+
 ### Upgrading from token-meter
 
-Versions before 0.4.1 were called `token-meter`. Remove it so the bar doesn't show twice:
+Versions before 0.4.1 were called `token-meter`. Remove it, then install usage-monitor as above:
 
 ```
 claude plugin uninstall token-meter@claude-code-usage-monitor
+```
+
+```
+claude plugin install usage-monitor@claude-code-usage-monitor
 ```
 
 ## License
