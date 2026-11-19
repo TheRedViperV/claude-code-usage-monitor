@@ -30,6 +30,6 @@ export type SharedLimits = { limits: Limit[]; savedAt: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    'token-meter': { meter: Meter | null }
+    'usage-monitor': { meter: Meter | null }
   }
 }

@@ -8,7 +8,7 @@ import type { IconName } from './art'
 
 // The live figures, refreshed by `session.measure`; a meter stored by an older
 // version may lack fields, which `sane` repairs.
-const meter = atom({ plugin: 'token-meter', key: 'meter' } as const, null)
+const meter = atom({ plugin: 'usage-monitor', key: 'meter' } as const, null)
 
 /** `$.store` key (shared by every chat) for the account's last-known limits. */
 const SHARED = 'limits'

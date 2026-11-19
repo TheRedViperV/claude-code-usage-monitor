@@ -1,9 +1,18 @@
 {
-  "name": "token-meter",
-  "version": "0.4.0",
-  "description": "Live usage bar above the chat box: 5-hour limit, weekly limit and context fill, each with a 3D activity ring and a reset time you can switch to a countdown.",
-  "author": { "name": "TheRedViperV" },
+  "name": "usage-monitor",
+  "version": "0.4.1",
+  "description": "Claude Code Usage Monitor: a live usage bar above the chat box with the 5-hour limit, weekly limit and context fill, each with an activity ring and a reset time you can switch to a countdown. Made for the Claude desktop app's Code tab.",
+  "author": {
+    "name": "TheRedViperV"
+  },
   "license": "MIT",
   "homepage": "https://github.com/TheRedViperV/claude-code-usage-monitor",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "keywords": [
+    "usage",
+    "limits",
+    "rate limit",
+    "context",
+    "monitor"
+  ]
 }

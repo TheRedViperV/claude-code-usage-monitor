@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 const BAND = {
-  plugin: 'token-meter',
+  plugin: 'usage-monitor',
   component: 'AbovePrompt',
   props: {
     hasSurvey: false,

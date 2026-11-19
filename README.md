@@ -16,20 +16,34 @@ The 5-hour and weekly limits belong to your account, so every open chat shows th
 
 ## Install
 
-**Claude desktop app (Code tab):** click **+** next to the prompt box, then **Plugins** → **Add marketplace**, enter `TheRedViperV/claude-code-usage-monitor`, then **Add plugin** and pick **token-meter**.
+The plugin is called **usage-monitor**.
+
+**Claude desktop app (Code tab):** click **+** next to the prompt box, then **Plugins** → **Add marketplace**, and enter `TheRedViperV/claude-code-usage-monitor`. Then click **Add plugin**, pick **usage-monitor**, and start a new chat.
+
+If the desktop app's marketplace list stays empty, install it from PowerShell instead and restart the app. A plugin installed for your user loads in the desktop app's Code tab too:
+
+```
+claude plugin marketplace add TheRedViperV/claude-code-usage-monitor
+```
+
+```
+claude plugin install usage-monitor@claude-code-usage-monitor
+```
 
 **Claude Code in a terminal**, at the prompt:
 
 ```
-/plugin install token-meter --marketplace TheRedViperV/claude-code-usage-monitor
+/plugin install usage-monitor --marketplace TheRedViperV/claude-code-usage-monitor
 ```
 
 Answer `y` to add the marketplace, then choose the user scope so it appears in every session.
 
-**From a shell:**
+### Upgrading from token-meter
+
+Versions before 0.4.1 were called `token-meter`. Remove it so the bar doesn't show twice:
 
 ```
-claude plugin install token-meter --marketplace TheRedViperV/claude-code-usage-monitor
+claude plugin uninstall token-meter@claude-code-usage-monitor
 ```
 
 ## License
