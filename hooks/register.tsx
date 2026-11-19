@@ -1,31 +1,80 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
-import type { Limit, Meter, SharedLimits } from '../types'
+import type { Limit, Meter, ResetStyle, SharedLimits } from '../types'
+
+import { CHIP_H, DIVIDER, chipSvg, ringSvg } from './art'
+import type { IconName } from './art'
 
 // The live figures, refreshed by `session.measure`; a meter stored by an older
-// version may lack `limits`, which the render guards.
+// version may lack fields, which `sane` repairs.
 const meter = atom({ plugin: 'token-meter', key: 'meter' } as const, null)
 
 /** `$.store` key (shared by every chat) for the account's last-known limits. */
 const SHARED = 'limits'
-
-function toMeter(context: SessionContextUsage, rateLimits: readonly SessionRateLimit[], now: number): Meter {
-  return {
-    contextTokens: context.tokens ?? null,
-    contextWindow: context.window,
-    contextPercent: context.percent ?? null,
-    usd: null,
-    limits: rateLimits.map(r => ({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt ?? null })),
-    limitsAt: rateLimits.length ? now : null,
-  }
-}
+/** `$.store` key for how the reset reads: a clock time or a countdown. */
+const STYLE = 'resetStyle'
 
 type Api = EngineInterface
 
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+
+/** A limit as stored or heard, or null when it is unusable. */
+function saneLimit(v: unknown): Limit | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as Record<string, unknown>
+  const pct = num(o.percentUsed)
+  if (typeof o.kind !== 'string' || pct == null) return null
+  const at = typeof o.resetsAt === 'string' && Number.isFinite(Date.parse(o.resetsAt)) ? o.resetsAt : null
+  return { kind: o.kind, percentUsed: pct, resetsAt: at }
+}
+
+/** Any stored meter, from any version, in today's shape (null if hopeless). */
+export function sane(v: unknown): Meter | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as Record<string, unknown>
+  const limits = Array.isArray(o.limits) ? o.limits.map(saneLimit).filter((l): l is Limit => !!l) : []
+  return {
+    contextTokens: num(o.contextTokens),
+    contextWindow: num(o.contextWindow) ?? 0,
+    contextPercent: num(o.contextPercent),
+    usd: null,
+    limits,
+    limitsAt: num(o.limitsAt),
+  }
+}
+
+function toMeter(context: SessionContextUsage, rateLimits: readonly SessionRateLimit[], now: number): Meter {
+  const limits = rateLimits
+    .map(r => saneLimit({ kind: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt ?? null }))
+    .filter((l): l is Limit => !!l)
+  return {
+    contextTokens: num(context.tokens),
+    contextWindow: num(context.window) ?? 0,
+    contextPercent: num(context.percent),
+    usd: null,
+    limits,
+    limitsAt: limits.length ? now : null,
+  }
+}
+
 async function readShared($: Api): Promise<SharedLimits | null> {
-  const v = (await $.store.get(SHARED)) as SharedLimits | undefined
-  return v && Array.isArray(v.limits) && typeof v.savedAt === 'number' ? v : null
+  try {
+    const v = (await $.store.get(SHARED)) as Partial<SharedLimits> | undefined
+    const savedAt = num(v?.savedAt)
+    if (!v || !Array.isArray(v.limits) || savedAt == null) return null
+    return { limits: v.limits.map(saneLimit).filter((l): l is Limit => !!l), savedAt }
+  } catch {
+    return null
+  }
+}
+
+async function readStyle($: Api): Promise<ResetStyle> {
+  try {
+    return (await $.store.get(STYLE)) === 'countdown' ? 'countdown' : 'clock'
+  } catch {
+    return 'clock'
+  }
 }
 
 /**
@@ -35,37 +84,71 @@ async function readShared($: Api): Promise<SharedLimits | null> {
  */
 async function reconcile($: Api, m: Meter): Promise<Meter> {
   const shared = await readShared($)
-  const own = m.limits?.length ? (m.limitsAt ?? 0) : -1
+  const own = m.limits.length ? (m.limitsAt ?? 0) : -1
   if (own >= 0 && (!shared || own > shared.savedAt)) {
-    await $.store.set(SHARED, { limits: m.limits, savedAt: own } satisfies SharedLimits)
+    try {
+      await $.store.set(SHARED, { limits: m.limits, savedAt: own } satisfies SharedLimits)
+    } catch {
+      // Sharing is a nicety: this chat still shows its own figures.
+    }
     return m
   }
-  if (shared && shared.savedAt > own) return { ...m, limits: shared.limits, limitsAt: shared.savedAt }
+  if (shared && shared.limits.length && shared.savedAt > own) return { ...m, limits: shared.limits, limitsAt: shared.savedAt }
   return m
 }
 
-/** A window whose reset has passed no longer tells its use: shown as unknown. */
-function live(l: Limit, now: number): number | null {
-  if (l.resetsAt && Date.parse(l.resetsAt) <= now) return null
+/** Signed in with an API key or a cloud provider: no plan limits exist to show. */
+async function hasNoPlan($: Api): Promise<boolean> {
+  try {
+    const id = await $.session.identity()
+    if (!id.kind) return false
+    return !['claude.ai', 'oauth-token', 'none'].includes(id.kind)
+  } catch {
+    return false
+  }
+}
+
+/** Percent used now: a window whose reset has passed has started over at 0. */
+export function live(l: Limit, now: number): number {
+  if (l.resetsAt && Date.parse(l.resetsAt) <= now) return 0
   return l.percentUsed
 }
 
-function fmt(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}k`
-  return String(n)
+/** 950, 12.5k, 171k, 1M, 1.5M. */
+export function fmt(n: number): string {
+  const trim = (s: string) => s.replace(/\.0$/, '')
+  if (n >= 1_000_000) return `${trim((n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1))}M`
+  if (n >= 1_000) return `${trim((n / 1_000).toFixed(n >= 100_000 ? 0 : 1))}k`
+  return String(Math.round(n))
 }
 
-function untilReset(iso: string | null, now: number): string | null {
-  if (!iso) return null
+/** `<1m`, `26m`, `1h 26m`, `2d 14h`; `now` once due. */
+export function countdown(iso: string, now: number): string | null {
   const ms = Date.parse(iso) - now
   if (!Number.isFinite(ms)) return null
   if (ms <= 0) return 'now'
-  const min = Math.round(ms / 60_000)
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return '<1m'
   if (min < 60) return `${min}m`
   const h = Math.floor(min / 60)
-  if (h < 24) return `${h}h${String(min % 60).padStart(2, '0')}m`
-  return `${Math.round(h / 24)}d`
+  if (h < 24) return min % 60 ? `${h}h ${min % 60}m` : `${h}h`
+  const d = Math.floor(h / 24)
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`
+}
+
+/**
+ * When it resets, in the person's own time zone on a 12-hour clock: `4:30 PM`
+ * today, `Sat 9:00 AM` within the week, `Nov 21` further out.
+ */
+export function clockTime(iso: string, now: number): string | null {
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at)) return null
+  if (at <= now) return 'now'
+  const d = new Date(at)
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  if (d.toDateString() === new Date(now).toDateString()) return time
+  if (at - now < 6 * 86_400_000) return `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${time}`
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 /** Green under 60%, amber under 85%, red above. */
@@ -73,77 +156,30 @@ function tone(pct: number): 'success' | 'warning' | 'error' {
   return pct >= 85 ? 'error' : pct >= 60 ? 'warning' : 'success'
 }
 
-/**
- * Ring gradients, dark at 12 o'clock to bright at the tip, as Apple's activity
- * rings run. The SVG is drawn isolated, so raw colours, not theme keys.
- */
-const RING = {
-  success: ['#00B85C', '#B4FF3C'],
-  warning: ['#FF6A00', '#FFD60A'],
-  error: ['#E0003C', '#FF6A8A'],
-} as const
-
-/**
- * A 3D activity ring: a tinted track; an arc whose colour runs along it (small
- * segments, since SVG has no conic gradient) into a round tip that casts a soft
- * shadow; and tube shading over the whole ring, dark edges and a gloss line.
- */
-function ringSvg(pct: number, level: keyof typeof RING): string {
-  const [from, to] = RING[level]
-  const p = Math.max(0, Math.min(100, pct))
-  const cx = 18
-  const r = 12.5
-  const w = 7
-  const pt = (a: number) => [(cx + r * Math.sin(a)).toFixed(2), (cx - r * Math.cos(a)).toFixed(2)]
-  const total = (p / 100) * 2 * Math.PI
-  const parts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><defs>`,
-    `<filter id="s" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="0" stdDeviation="1.3" flood-color="#000" flood-opacity="0.6"/></filter>`,
-    `<radialGradient id="t" cx="${cx}" cy="${cx}" r="${r + w / 2}" gradientUnits="userSpaceOnUse">`,
-    `<stop offset="${((r - w / 2) / (r + w / 2)).toFixed(4)}" stop-color="#000" stop-opacity="0.38"/>`,
-    `<stop offset="0.70" stop-color="#fff" stop-opacity="0.16"/><stop offset="0.80" stop-color="#fff" stop-opacity="0"/>`,
-    `<stop offset="1" stop-color="#000" stop-opacity="0.32"/></radialGradient></defs>`,
-    `<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${from}" stroke-opacity="0.22" stroke-width="${w}"/>`,
-  ]
-  if (p > 0) {
-    const n = Math.max(2, Math.ceil((p / 100) * 64))
-    const [sx, sy] = pt(0)
-    parts.push(`<circle cx="${sx}" cy="${sy}" r="${w / 2}" fill="${from}"/>`)
-    for (let i = 0; i < n; i++) {
-      const [x0, y0] = pt((total * i) / n)
-      const [x1, y1] = pt(Math.min(total, (total * (i + 1)) / n + 0.02))
-      parts.push(`<path d="M${x0} ${y0}A${r} ${r} 0 0 1 ${x1} ${y1}" fill="none" stroke="${mix(from, to, (i + 0.5) / n)}" stroke-width="${w}"/>`)
-    }
-    const [tx, ty] = pt(total)
-    parts.push(`<circle cx="${tx}" cy="${ty}" r="${w / 2}" fill="${to}" filter="url(#s)"/>`)
-  }
-  parts.push(`<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="url(#t)" stroke-width="${w}"/></svg>`)
-  return parts.join('')
-}
-
-/** `#rrggbb` between `a` and `b`, `t` from 0 to 1. */
-function mix(a: string, b: string, t: number): string {
-  const rgb = (h: string) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
-  const [A, B] = [rgb(a), rgb(b)]
-  return '#' + A.map((v, i) => Math.round(v + ((B[i] ?? v) - v) * t).toString(16).padStart(2, '0')).join('')
-}
-
-/** The three things the bar shows: Session (5h) and Weekly limits, then Context. */
+/** The three things the bar shows: the 5-hour and weekly limits, then context. */
 const ORDER = ['five_hour', 'seven_day']
-const LABELS: Record<string, string> = { five_hour: 'Session', seven_day: 'Weekly' }
+const LABELS: Record<string, string> = { five_hour: '5-hour limit', seven_day: 'Weekly' }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const u = await $.session.usage()
-    const m = await reconcile($, toMeter(u.context, u.rateLimits, await $.clock.now()))
-    await update($, meter, () => m)
-    // Pick up limits another chat heard, and let the reset countdown move.
+    try {
+      const u = await $.session.usage()
+      const m = await reconcile($, toMeter(u.context, u.rateLimits, await $.clock.now()))
+      await update($, meter, () => m)
+    } catch {
+      // The bar reads the figures itself while nothing is stored.
+    }
+    // Pick up limits another chat heard, and let the countdown move.
     $.clock.every(60_000, () => {
       void (async () => {
-        const cur = await read($, meter)
-        if (cur) {
-          const n = await reconcile($, cur)
-          if (n !== cur) await update($, meter, () => n)
+        try {
+          const cur = sane(await read($, meter))
+          if (cur) {
+            const n = await reconcile($, cur)
+            if (n !== cur) await update($, meter, () => n)
+          }
+        } catch {
+          // Try again on the next tick.
         }
         $.ui.invalidate('ui.render')
       })()
@@ -153,12 +189,16 @@ export const register: Register = on => {
 
   // Fires whenever context fill or rate limits move: keeps the bar live.
   on('session.measure', async ($, e, next) => {
-    const prev = await read($, meter)
-    let m = toMeter(e.context, e.rateLimits, await $.clock.now())
-    // A context-only measure keeps the limits already shown.
-    if (!m.limits.length && prev?.limits?.length) m = { ...m, limits: prev.limits, limitsAt: prev.limitsAt ?? null }
-    m = await reconcile($, m)
-    await update($, meter, () => m)
+    try {
+      const prev = sane(await read($, meter))
+      let m = toMeter(e.context, e.rateLimits, await $.clock.now())
+      // A context-only measure keeps the limits already shown.
+      if (!m.limits.length && prev?.limits.length) m = { ...m, limits: prev.limits, limitsAt: prev.limitsAt ?? null }
+      m = await reconcile($, m)
+      await update($, meter, () => m)
+    } catch {
+      // Keep the last figures; the next measure tries again.
+    }
     return next(e)
   })
 
@@ -167,76 +207,153 @@ export const register: Register = on => {
     if (e.props.hasSurvey) return next(e)
 
     const now = await $.clock.now()
-    let m = await read($, meter)
-    if (!m || !m.limits) {
+    let m = sane(await read($, meter).catch(() => null))
+    if (!m) {
       // Nothing measured since a (re)load: read the figures now. Drawing may
       // not write state (the engine skips the whole bar if it does), so these
       // stay local until the next measure or tick stores them.
-      const u = await $.session.usage()
-      m = toMeter(u.context, u.rateLimits, now)
+      try {
+        const u = await $.session.usage()
+        m = toMeter(u.context, u.rateLimits, now)
+      } catch {
+        m = { contextTokens: null, contextWindow: 0, contextPercent: null, usd: null, limits: [], limitsAt: null }
+      }
     }
     if (!m.limits.length) {
       // No reply in this chat yet: show what another chat last heard.
       const shared = await readShared($)
-      if (shared) m = { ...m, limits: shared.limits, limitsAt: shared.savedAt }
+      if (shared?.limits.length) m = { ...m, limits: shared.limits, limitsAt: shared.savedAt }
     }
+    const noPlan = !m.limits.length && (await hasNoPlan($))
+    const style = await readStyle($)
+
     const els = $.ui.resolve(e)
-    const { Box, Text } = els
-    const Svg = 'Svg' in els ? els.Svg : null
+    const { Box, Button, Text } = els
+    // The terminal's table names Svg but draws it as nothing, so images are
+    // for the graphical surfaces only; click layers for the desktop app.
+    const Svg = e.surface !== 'terminal' && 'Svg' in els ? els.Svg : null
+    const Client = e.surface === 'desktop' && 'Client' in els ? els.Client : null
 
-    // Responsive: wide shows everything, medium shortens the details, narrow keeps ring and percent.
+    // Responsive: wide shows everything, medium shortens the context figure,
+    // narrow drops the labels, tiny keeps just ring and percent.
     const cols = e.props.bodyColumns
-    const fit: 'wide' | 'medium' | 'narrow' = cols >= 96 ? 'wide' : cols >= 64 ? 'medium' : 'narrow'
-
-    const label = (s: string) => (
-      <Text size="footnote" weight="medium" color="subtle" wrap="end">{s}</Text>
-    )
-    const value = (s: string, color?: string) => (
-      <Text size="footnote" weight="semibold" tabular color={color} wrap="end">{s}</Text>
-    )
-    const detail = (s: string) => (
-      <Text size="footnote" tabular color="subtle" wrap="end">{s}</Text>
-    )
+    const fit: 'wide' | 'medium' | 'narrow' | 'tiny' = cols >= 100 ? 'wide' : cols >= 72 ? 'medium' : cols >= 48 ? 'narrow' : 'tiny'
 
     const ring = (p: number) =>
       Svg ? <Svg source={ringSvg(p, tone(p))} alt={`${Math.round(p)}% used`} width={20} height={20} /> : null
 
-    // One item, sharing the row's width equally with the others, on one line.
-    const item = (key: string, name: string, pct: number | null, long: string | null, short: string | null) => {
-      const p = Math.max(0, Math.min(100, pct ?? 0))
-      const extra = fit === 'wide' ? long : fit === 'medium' ? short : null
+    // A pill drawn as one image (icon and text), so the app shows it exactly
+    // as designed; the terminal, with no images, gets plain text.
+    const chip = (icon: IconName, text: string) => {
+      if (!Svg) return <Text key="chip" size="footnote" weight="medium" tabular wrap="end">{text}</Text>
+      const c = chipSvg(icon, text)
+      return <Svg key="chip" source={c.source} alt={text} width={c.width} height={CHIP_H} />
+    }
+
+    /**
+     * A reset time: a pill with a swap arrow, and a click on it switches every
+     * reset between clock time and countdown. Images take no presses, so on
+     * the desktop app a transparent click layer (`./hit.ts`) lies over it; the
+     * terminal gets a plain Button.
+     */
+    const resetChip = (key: string, text: string) => {
+      const other = style === 'clock' ? 'countdown' : 'clock time'
+      if (!Svg || !Client) {
+        return (
+          <Button key={`swap-${key}`} plain onPress={() => toggleStyle($)}>
+            <Text size="footnote" weight="medium" tabular>{`${text} ⇄`}</Text>
+          </Button>
+        )
+      }
+      const c = chipSvg(style, text, { swap: true })
       return (
-        <Box key={key} flexDirection="row" flexWrap="nowrap" flexGrow={1} flexShrink={1} width={0} minWidth={0} alignItems="center" justifyContent="center" columnGap="xs">
+        <Box key={`swap-${key}`} position="relative" flexShrink={0}>
+          <Svg source={c.source} alt={`${text}, click to show ${other}`} width={c.width} height={CHIP_H} />
+          <Box key={`swap-${key}-hit`} position="absolute" top={0} left={0} right={0} bottom={0}>
+            <Client key={`hit-swap-${key}`} module="./hit.ts" props={{ action: 'swap' }} width="100%" height="100%" />
+          </Box>
+        </Box>
+      )
+    }
+
+    // One meter at its own width, on one line.
+    const item = (key: string, name: string, pct: number | null, extra: RenderChildren) => {
+      const p = Math.max(0, Math.min(100, pct ?? 0))
+      return (
+        <Box key={key} flexDirection="row" flexWrap="nowrap" flexShrink={1} minWidth={0} alignItems="center" columnGap="sm">
           {ring(p)}
-          {fit !== 'narrow' ? label(name) : null}
-          {value(pct == null ? '-' : `${Math.round(pct)}%`, pct == null ? 'subtle' : tone(p))}
-          {extra ? detail(extra) : null}
+          {fit === 'wide' || fit === 'medium' ? <Text size="footnote" weight="medium" color="subtle" wrap="end">{name}</Text> : null}
+          <Text size="footnote" weight="semibold" tabular color={pct == null ? 'subtle' : tone(p)} wrap="end">
+            {pct == null ? '–' : `${Math.round(pct)}%`}
+          </Text>
+          {fit === 'tiny' ? null : extra}
         </Box>
       )
     }
 
     const items: RenderChildren[] = []
-    // Session and Weekly always hold their place; '-' until a reading exists.
-    for (const kind of ORDER) {
-      const l = m.limits.find(x => x.kind === kind)
-      const pct = l ? live(l, now) : null
-      const reset = l && pct != null ? untilReset(l.resetsAt, now) : null
-      const long = reset ? `resets in ${reset}` : l ? 'reset' : 'after first reply'
-      items.push(item(`lim-${kind}`, LABELS[kind] ?? kind, pct, long, reset))
+    if (!noPlan) {
+      // Both limits always hold their place; a dash until a reading exists.
+      for (const kind of ORDER) {
+        const l = m.limits.find(x => x.kind === kind)
+        const pct = l ? live(l, now) : null
+        const due = !!l?.resetsAt && Date.parse(l.resetsAt) <= now
+        const when = l?.resetsAt && !due ? (style === 'countdown' ? countdown(l.resetsAt, now) : clockTime(l.resetsAt, now)) : null
+        const extra = due
+          ? chip(style, 'reset')
+          : when
+            ? resetChip(kind, when)
+            : !l && fit === 'wide'
+              ? <Text key="wait" size="footnote" color="subtle" wrap="end">after first reply</Text>
+              : null
+        items.push(item(`lim-${kind}`, LABELS[kind] ?? kind, pct, extra))
+      }
     }
-    const used = m.contextTokens == null ? null : `${fmt(m.contextTokens)}/${fmt(m.contextWindow)}`
-    items.push(item('ctx', 'Context', m.contextPercent, used, m.contextTokens == null ? null : fmt(m.contextTokens)))
+    // Context: the fill, worked out from the tokens when the percent is missing.
+    const win = m.contextWindow > 0 ? m.contextWindow : null
+    const ctxPct = m.contextPercent ?? (m.contextTokens != null && win ? (m.contextTokens / win) * 100 : null)
+    const used = m.contextTokens == null ? null : fit === 'wide' && win ? `${fmt(m.contextTokens)} / ${fmt(win)}` : fmt(m.contextTokens)
+    items.push(item('ctx', 'Context', ctxPct, used ? chip('context', used) : null))
 
-    const row: RenderChildren[] = []
+    // Meters at their own width with equal gaps between them, each divider
+    // in the middle of its gap, and the same gap at each end.
+    const gap = (key: string, divider: boolean) => (
+      <Box key={key} flexGrow={1} flexShrink={1} minWidth={2} flexDirection="row" justifyContent="center" alignItems="center">
+        {divider
+          ? Svg
+            ? <Svg source={DIVIDER} alt="divider" width={1} height={22} />
+            : <Text size="footnote" color="subtle">{'│'}</Text>
+          : null}
+      </Box>
+    )
+    const row: RenderChildren[] = [gap('sep-start', false)]
     items.forEach((it, i) => {
-      if (i > 0) row.push(<Text key={`sep-${i}`} size="footnote" color="subtle">{'│'}</Text>)
+      if (i > 0) row.push(gap(`sep-${i}`, true))
       row.push(it)
     })
+    row.push(gap('sep-end', false))
 
     return (
-      <Box key="usage-bar" width="100%" flexDirection="row" flexWrap="nowrap" alignItems="center" columnGap="sm" overflow="hidden">
+      <Box key="usage-bar" width="100%" flexDirection="row" flexWrap="nowrap" alignItems="center" overflow="hidden">
         {row}
       </Box>
     )
   })
+
+  // A click on a reset time (`./hit.ts` posts it).
+  on('ui.message', async ($, e, next) => {
+    if ((e.data as { action?: unknown } | null)?.action === 'swap') await toggleStyle($)
+    return next(e)
+  })
+}
+
+/** Switches every reset between clock time and countdown, for every chat. */
+async function toggleStyle($: Api): Promise<void> {
+  const s: ResetStyle = (await readStyle($)) === 'clock' ? 'countdown' : 'clock'
+  try {
+    await $.store.set(STYLE, s)
+  } catch {
+    // Not saved; the bar keeps the style it had.
+  }
+  $.ui.invalidate('ui.render')
 }

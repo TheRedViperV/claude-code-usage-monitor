@@ -22,6 +22,9 @@ export type Meter = {
   limitsAt?: number | null
 }
 
+/** How a limit's reset reads: the clock time it resets at, or a countdown. */
+export type ResetStyle = 'clock' | 'countdown'
+
 /** Last-known limits shared by every chat through `$.store` under `limits`. */
 export type SharedLimits = { limits: Limit[]; savedAt: number }
 

@@ -1,7 +1,7 @@
 {
   "name": "token-meter",
-  "version": "0.3.0",
-  "description": "Live usage bar above the chat box: 5-hour session limit, weekly limit and context fill, each with a 3D activity ring.",
+  "version": "0.4.0",
+  "description": "Live usage bar above the chat box: 5-hour limit, weekly limit and context fill, each with a 3D activity ring and a reset time you can switch to a countdown.",
   "author": { "name": "TheRedViperV" },
   "license": "MIT",
   "homepage": "https://github.com/TheRedViperV/claude-code-usage-monitor",
