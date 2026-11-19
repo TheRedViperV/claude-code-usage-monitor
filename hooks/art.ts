@@ -44,24 +44,25 @@ export function textWidth(s: string): number {
   return Math.ceil(w)
 }
 
-/** A pill: icon, then text. Returns the markup and its width. */
-export function chipSvg(icon: IconName, text: string, opts: { sub?: string; check?: boolean; swap?: boolean } = {}): { source: string; width: number } {
+/** A pill: icon (none for a bare pill), then text. Returns the markup and its width. */
+export function chipSvg(icon: IconName | null, text: string, opts: { sub?: string; check?: boolean; swap?: boolean } = {}): { source: string; width: number } {
   const subW = opts.sub ? 5 + textWidth(opts.sub) : 0
   const tw = textWidth(text) + subW
   const check = opts.check ? 20 : 0
   const swap = opts.swap ? 17 : 0
-  const width = 8 + 12 + 5 + tw + check + swap + 9
+  const lead = icon ? 8 + 12 + 5 : 9
+  const width = lead + tw + check + swap + 9
   const h = CHIP_H
   const source =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${h}" viewBox="0 0 ${width} ${h}">${STYLE}` +
     `<rect class="f" x="0" y="0" width="${width}" height="${h}" rx="${h / 2}"/>` +
-    `<g class="i" transform="translate(8 4)" fill="none" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</g>` +
-    `<text class="t" x="25" y="14.2" ${FONT} font-size="12" font-weight="600" style="font-variant-numeric:tabular-nums">${esc(text)}${opts.sub ? `<tspan class="s" dx="5" font-weight="500">${esc(opts.sub)}</tspan>` : ''}</text>` +
+    (icon ? `<g class="i" transform="translate(8 4)" fill="none" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</g>` : '') +
+    `<text class="t" x="${lead}" y="14.2" ${FONT} font-size="12" font-weight="600" style="font-variant-numeric:tabular-nums">${esc(text)}${opts.sub ? `<tspan class="s" dx="5" font-weight="500">${esc(opts.sub)}</tspan>` : ''}</text>` +
     (opts.check
-      ? `<path class="k" transform="translate(${25 + tw + 7} 4)" d="M2.5 6.2 5 8.6 9.6 3.6" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`
+      ? `<path class="k" transform="translate(${lead + tw + 7} 4)" d="M2.5 6.2 5 8.6 9.6 3.6" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`
       : '') +
     (opts.swap
-      ? `<g class="i" transform="translate(${25 + tw + 6} 4)" fill="none" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity=".75">${ICONS.swap}</g>`
+      ? `<g class="i" transform="translate(${lead + tw + 6} 4)" fill="none" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" opacity=".75">${ICONS.swap}</g>`
       : '') +
     `</svg>`
   return { source, width }

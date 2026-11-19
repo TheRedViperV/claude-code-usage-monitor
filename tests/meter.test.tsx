@@ -226,3 +226,36 @@ test('a narrow desktop band moves the labels into the rings; a wide one keeps th
   expect(await term.find({ type: 'Text', text: '5-hour limit' })).toBeDefined()
   await term.unmount()
 })
+
+test('a still narrower desktop band drops the token count, then the reset times, and never overlaps', async ($, on) => {
+  on('clock.now', () => ({ value: NOW }))
+  on('session.usage', () => ({ value: { startedAt: NOW, context: { tokens: 207_000, window: 1_000_000, percent: 21 }, rateLimits: [] } }))
+  on('store.get', (_, e) => ({
+    value: e.key === 'limits'
+      ? { savedAt: NOW - 60_000, limits: [
+          { kind: 'five_hour', percentUsed: 30, resetsAt: '2026-11-18T23:20:00Z' },
+          { kind: 'seven_day', percentUsed: 62, resetsAt: '2026-11-21T08:00:00Z' },
+        ] }
+      : undefined,
+  }))
+  const at = (bodyColumns: number) => $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, bodyColumns } })
+  const resets = (a: string[]) => a.filter(s => s.includes('click to show')).length
+
+  const roomy = await at(80)
+  expect((await alts(roomy)).includes('207k')).toBe(true)
+  await roomy.unmount()
+
+  const tight = await at(58)
+  const t = await alts(tight)
+  expect(t.includes('207k')).toBe(false)
+  expect(resets(t)).toBe(2)
+  for (const s of ['30%', '62%', '21%']) expect(await tight.find({ type: 'Text', text: s })).toBeDefined()
+  await tight.unmount()
+
+  const tiny = await at(25)
+  const y = await alts(tiny)
+  expect(resets(y)).toBe(0)
+  for (const s of ['5-hour limit 30% used', 'Weekly 62% used', 'Context 21% used']) expect(y.includes(s)).toBe(true)
+  for (const s of ['30%', '62%', '21%']) expect(await tiny.find({ type: 'Text', text: s })).toBeDefined()
+  await tiny.unmount()
+})

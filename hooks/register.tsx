@@ -243,7 +243,7 @@ export const register: Register = on => {
 
     // A pill drawn as one image (icon and text), so the app shows it exactly
     // as designed; the terminal, with no images, gets plain text.
-    const chip = (icon: IconName, text: string): Extra => {
+    const chip = (icon: IconName | null, text: string): Extra => {
       if (!Svg) return { node: <Text key="chip" size="footnote" weight="medium" tabular wrap="end">{text}</Text>, width: textWidth(text) }
       const c = chipSvg(icon, text)
       return { node: <Svg key="chip" source={c.source} alt={text} width={c.width} height={CHIP_H} />, width: c.width }
@@ -255,7 +255,7 @@ export const register: Register = on => {
      * the desktop app a transparent click layer (`./hit.ts`) lies over it; the
      * terminal gets a plain Button.
      */
-    const resetChip = (key: string, text: string): Extra => {
+    const resetChip = (key: string, text: string, bare = false): Extra => {
       const other = style === 'clock' ? 'countdown' : 'clock time'
       if (!Svg || !Client) {
         return {
@@ -267,7 +267,7 @@ export const register: Register = on => {
           width: textWidth(text) + 12,
         }
       }
-      const c = chipSvg(style, text, { swap: true })
+      const c = bare ? chipSvg(null, text) : chipSvg(style, text, { swap: true })
       return {
         node: (
           <Box key={`swap-${key}`} position="relative" flexShrink={0}>
@@ -296,20 +296,23 @@ export const register: Register = on => {
             : !l && fit === 'wide'
               ? { node: <Text key="wait" size="footnote" color="subtle" wrap="end">after first reply</Text>, width: textWidth('after first reply') }
               : null
-        specs.push({ key: `lim-${kind}`, mark: kind === 'five_hour' ? 'five_hour' : 'seven_day', name: LABELS[kind] ?? kind, pct, extra })
+        const slim: Extra | null = due ? chip(null, 'reset') : when ? resetChip(kind, when, true) : null
+        specs.push({ key: `lim-${kind}`, mark: kind === 'five_hour' ? 'five_hour' : 'seven_day', name: LABELS[kind] ?? kind, pct, extra, slim, spare: false })
       }
     }
     // Context: the fill, worked out from the tokens when the percent is missing.
     const win = m.contextWindow > 0 ? m.contextWindow : null
     const ctxPct = m.contextPercent ?? (m.contextTokens != null && win ? (m.contextTokens / win) * 100 : null)
     const used = m.contextTokens == null ? null : fit === 'wide' && win ? `${fmt(m.contextTokens)} / ${fmt(win)}` : fmt(m.contextTokens)
-    specs.push({ key: 'ctx', mark: 'context', name: 'Context', pct: ctxPct, extra: used ? chip('context', used) : null })
+    specs.push({ key: 'ctx', mark: 'context', name: 'Context', pct: ctxPct, extra: used ? chip('context', used) : null, slim: null, spare: true })
 
-    const showExtra = fit !== 'tiny'
-    // Labels move into the rings on the graphical surfaces only, and only when
-    // the full row would not fit the band.
-    const compact = !!Svg && fullWidth(specs, showExtra) > cols * CELL_PX
+    // The graphical surfaces keep the full row while it fits, then step down
+    // one notch at a time until the row fits the band (see `Step`).
+    const step: Step = Svg ? fitStep(specs, cols * CELL_PX) : 0
+    const compact = step >= 1
     const showLabel = Svg ? !compact : fit === 'wide' || fit === 'medium'
+    const extraOf = (s: Spec): Extra | null =>
+      !Svg ? (fit === 'tiny' ? null : s.extra) : step >= 4 ? null : step >= 2 && s.spare ? null : step >= 3 ? s.slim : s.extra
 
     const ring = (p: number, s: Spec) => {
       if (!Svg) return null
@@ -322,7 +325,7 @@ export const register: Register = on => {
     const item = (s: Spec) => {
       const p = Math.max(0, Math.min(100, s.pct ?? 0))
       return (
-        <Box key={s.key} flexDirection="row" flexWrap="nowrap" flexShrink={1} minWidth={0} alignItems="center" columnGap="sm">
+        <Box key={s.key} flexDirection="row" flexWrap="nowrap" flexShrink={Svg ? 0 : 1} minWidth={0} alignItems="center" columnGap="sm">
           {ring(p, s)}
           {showLabel ? <Text size="footnote" weight="medium" color="subtle" wrap="end">{s.name}</Text> : null}
           <Box key="pct" flexShrink={0}>
@@ -330,7 +333,7 @@ export const register: Register = on => {
               {s.pct == null ? '–' : `${Math.round(s.pct)}%`}
             </Text>
           </Box>
-          {showExtra ? (s.extra?.node ?? null) : null}
+          {extraOf(s)?.node ?? null}
         </Box>
       )
     }
@@ -381,8 +384,19 @@ async function toggleStyle($: Api): Promise<void> {
 
 /** Something drawn after a meter's percentage, with its width in CSS pixels. */
 type Extra = { node: RenderChildren; width: number }
-/** One meter before it is drawn. */
-type Spec = { key: string; mark: RingMark; name: string; pct: number | null; extra: Extra | null }
+/**
+ * One meter before it is drawn: `extra` is what follows its percentage, `slim`
+ * the same without icons for the narrowest step, and `spare` marks a meter
+ * whose extra only repeats its percentage (context's token count).
+ */
+type Spec = { key: string; mark: RingMark; name: string; pct: number | null; extra: Extra | null; slim: Extra | null; spare: boolean }
+
+/**
+ * How far the desktop row has stepped down to fit: 0 everything, 1 labels in
+ * the rings, 2 without context's token count, 3 reset pills without icons,
+ * 4 ring and percentage alone.
+ */
+type Step = 0 | 1 | 2 | 3 | 4
 
 /**
  * CSS pixels per band column in the desktop app, which gives the band's width
@@ -393,14 +407,21 @@ const CELL_PX = 7.8
 const PART_GAP = 8
 const METER_GAP = 12
 
-/** How wide the row is with every label written out, in CSS pixels. */
-export function fullWidth(specs: readonly Spec[], withExtra: boolean): number {
+/** How wide the row is at `step`, in CSS pixels. */
+export function rowWidth(specs: readonly Spec[], step: Step): number {
   let w = 0
   for (const s of specs) {
     // Labels and percentages are footnote text, a shade larger than the chips' 12px.
     const pct = s.pct == null ? '–' : `${Math.round(s.pct)}%`
-    w += RING_PX + PART_GAP + textWidth(s.name) * 1.08 + PART_GAP + textWidth(pct) * 1.08
-    if (withExtra && s.extra) w += PART_GAP + s.extra.width
+    w += (step >= 1 ? MARKED_RING_PX : RING_PX + PART_GAP + textWidth(s.name) * 1.08) + PART_GAP + textWidth(pct) * 1.08
+    const extra = step >= 4 ? null : step >= 2 && s.spare ? null : step >= 3 ? s.slim : s.extra
+    if (extra) w += PART_GAP + extra.width
   }
   return w + (specs.length + 1) * METER_GAP + (specs.length - 1)
+}
+
+/** The first step at which the row fits `px`, or the last. */
+export function fitStep(specs: readonly Spec[], px: number): Step {
+  for (const step of [0, 1, 2, 3] as const) if (rowWidth(specs, step) <= px) return step
+  return 4
 }

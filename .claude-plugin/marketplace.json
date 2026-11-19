@@ -7,7 +7,7 @@
       "name": "usage-monitor",
       "source": "./",
       "description": "Live usage bar above the chat box: 5-hour limit, weekly limit and context fill, each with an activity ring and a reset time you can switch to a countdown. Made for the Claude desktop app's Code tab.",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "author": { "name": "TheRedViperV" },
       "homepage": "https://github.com/TheRedViperV/claude-code-usage-monitor",
       "license": "MIT",
