@@ -50,20 +50,6 @@ claude plugin marketplace update claude-code-usage-monitor
 claude plugin update usage-monitor@claude-code-usage-monitor
 ```
 
-If the update says `Plugin "usage-monitor" not found`, that computer still has the old name. Follow the steps below instead.
-
-### Upgrading from token-meter
-
-Versions before 0.4.1 were called `token-meter`. Remove it, then install usage-monitor as above:
-
-```
-claude plugin uninstall token-meter@claude-code-usage-monitor
-```
-
-```
-claude plugin install usage-monitor@claude-code-usage-monitor
-```
-
 ## License
 
 MIT
