@@ -1,6 +1,8 @@
-# Claude Desktop Usage Monitor
+# Claude Code Usage Monitor
 
-![Token Meter above the Claude Code prompt: Session 71%, Weekly 51%, Context 17%](assets/screenshot-bar.png)
+![Usage bar above the Claude Code prompt: Session 71%, Weekly 51%, Context 17%](assets/screenshot-bar.png)
+
+Built for the **Claude desktop app** (Code tab), and that is where it is tested. It also loads in Claude Code in a terminal (PowerShell included), but how it looks there hasn't been checked yet.
 
 A live usage bar above the chat box in Claude Code. It shows three things at a glance, each with an activity ring that turns from green to amber to red as it fills:
 
@@ -12,12 +14,12 @@ Session and Weekly limits belong to your account, so every open chat shows the l
 
 ## Install
 
-**Claude desktop app (Code tab):** click **+** next to the prompt box, then **Plugins** → **Add marketplace**, enter `TheRedViperV/claude-desktop-usage-monitor`, then **Add plugin** and pick **token-meter**.
+**Claude desktop app (Code tab):** click **+** next to the prompt box, then **Plugins** → **Add marketplace**, enter `TheRedViperV/claude-code-usage-monitor`, then **Add plugin** and pick **token-meter**.
 
 **Claude Code in a terminal**, at the prompt:
 
 ```
-/plugin install token-meter --marketplace TheRedViperV/claude-desktop-usage-monitor
+/plugin install token-meter --marketplace TheRedViperV/claude-code-usage-monitor
 ```
 
 Answer `y` to add the marketplace, then choose the user scope so it appears in every session.
@@ -25,7 +27,7 @@ Answer `y` to add the marketplace, then choose the user scope so it appears in e
 **From a shell:**
 
 ```
-claude plugin install token-meter --marketplace TheRedViperV/claude-desktop-usage-monitor
+claude plugin install token-meter --marketplace TheRedViperV/claude-code-usage-monitor
 ```
 
 ## License

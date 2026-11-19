@@ -1,5 +1,5 @@
 {
-  "name": "claude-desktop-usage-monitor",
+  "name": "claude-code-usage-monitor",
   "owner": { "name": "TheRedViperV" },
   "plugins": [{ "name": "token-meter", "source": "./" }]
 }
