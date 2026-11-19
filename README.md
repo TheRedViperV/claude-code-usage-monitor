@@ -12,7 +12,7 @@ A live usage bar above the chat box in Claude Code. It shows three things at a g
 
 Click either reset time to switch both between the clock time it resets at (`4:30 PM`, `Sat 9:00 AM`) and a countdown (`47m`, `2d 14h`). Every chat remembers your choice.
 
-The 5-hour and weekly limits belong to your account, so every open chat shows the latest figures, even one you haven't sent a message in yet. Once a limit resets, it shows 0% until your next reply brings a fresh reading. In the desktop app's Code tab a brand-new chat shows the bar after your first message, when its session starts; the Chat tab doesn't run plugins, so the bar isn't there. The bar adapts to the window width. Limits appear on Claude subscription plans (Pro, Max); with an API key only Context is shown.
+The 5-hour and weekly limits belong to your account, so every open chat shows the latest figures, even one you haven't sent a message in yet. Once a limit resets, it shows 0% until your next reply brings a fresh reading. In the desktop app's Code tab a brand-new chat shows the bar after your first message, when its session starts; the Chat tab doesn't run plugins, so the bar isn't there. The bar adapts to the window width: in a narrow window the labels move into the rings (5h, 7d and a stack for context), so every percentage and reset time stays readable. Limits appear on Claude subscription plans (Pro, Max); with an API key only Context is shown.
 
 ## Install
 

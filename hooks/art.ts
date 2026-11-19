@@ -91,12 +91,13 @@ const INK = '#8E8B83'
  * segments, since SVG has no conic gradient) into a round tip that casts a soft
  * shadow; and tube shading over the whole ring, dark edges and a gloss line.
  */
-export function ringSvg(pct: number, level: keyof typeof RING): string {
+export function ringSvg(pct: number, level: keyof typeof RING, mark?: RingMark): string {
   const [from, to] = RING[level]
   const p = Math.max(0, Math.min(100, pct))
   const cx = 18
-  const r = 12.5
-  const w = 7
+  // A marked ring is thinner, to leave room for its mark in the middle.
+  const r = mark ? 13.8 : 12.5
+  const w = mark ? 5 : 7
   const pt = (a: number) => [(cx + r * Math.sin(a)).toFixed(2), (cx - r * Math.cos(a)).toFixed(2)]
   const total = (p / 100) * 2 * Math.PI
   const parts = [
@@ -120,9 +121,22 @@ export function ringSvg(pct: number, level: keyof typeof RING): string {
     const [tx, ty] = pt(total)
     parts.push(`<circle cx="${tx}" cy="${ty}" r="${w / 2}" fill="${to}" filter="url(#s)"/>`)
   }
-  parts.push(`<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="url(#t)" stroke-width="${w}"/></svg>`)
+  parts.push(`<circle cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="url(#t)" stroke-width="${w}"/>`)
+  if (mark === 'context') {
+    parts.push(`${STYLE}<g class="i" transform="translate(11.4 11.4) scale(1.1)" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${ICONS.context}</g>`)
+  } else if (mark) {
+    parts.push(`${STYLE}<text class="t" x="${cx}" y="22" text-anchor="middle" ${FONT} font-size="11.5" font-weight="700">${mark === 'five_hour' ? '5h' : '7d'}</text>`)
+  }
+  parts.push(`</svg>`)
   return parts.join('')
 }
+
+/** What a marked ring shows in its middle, when there is no room for a label. */
+export type RingMark = 'five_hour' | 'seven_day' | 'context'
+
+/** Rendered size of a ring: plain, then marked. */
+export const RING_PX = 20
+export const MARKED_RING_PX = 28
 
 /** `#rrggbb` between `a` and `b`, `t` from 0 to 1. */
 function mix(a: string, b: string, t: number): string {

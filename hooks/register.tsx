@@ -3,8 +3,8 @@ import type { EngineInterface, Register, RenderChildren, SessionContextUsage, Se
 
 import type { Limit, Meter, ResetStyle, SharedLimits } from '../types'
 
-import { CHIP_H, DIVIDER, chipSvg, ringSvg } from './art'
-import type { IconName } from './art'
+import { CHIP_H, DIVIDER, MARKED_RING_PX, RING_PX, chipSvg, ringSvg, textWidth } from './art'
+import type { IconName, RingMark } from './art'
 
 // The live figures, refreshed by `session.measure`; a meter stored by an older
 // version may lack fields, which `sane` repairs.
@@ -234,20 +234,19 @@ export const register: Register = on => {
     const Svg = e.surface !== 'terminal' && 'Svg' in els ? els.Svg : null
     const Client = e.surface === 'desktop' && 'Client' in els ? els.Client : null
 
-    // Responsive: wide shows everything, medium shortens the context figure,
-    // narrow drops the labels, tiny keeps just ring and percent.
+    // Responsive. The terminal goes by its columns: wide shows everything,
+    // medium shortens the context figure, narrow drops the labels, tiny keeps
+    // just ring and percent. The desktop app keeps the full row as long as it
+    // fits, and only when it would not moves each label into its ring.
     const cols = e.props.bodyColumns
     const fit: 'wide' | 'medium' | 'narrow' | 'tiny' = cols >= 100 ? 'wide' : cols >= 72 ? 'medium' : cols >= 48 ? 'narrow' : 'tiny'
 
-    const ring = (p: number) =>
-      Svg ? <Svg source={ringSvg(p, tone(p))} alt={`${Math.round(p)}% used`} width={20} height={20} /> : null
-
     // A pill drawn as one image (icon and text), so the app shows it exactly
     // as designed; the terminal, with no images, gets plain text.
-    const chip = (icon: IconName, text: string) => {
-      if (!Svg) return <Text key="chip" size="footnote" weight="medium" tabular wrap="end">{text}</Text>
+    const chip = (icon: IconName, text: string): Extra => {
+      if (!Svg) return { node: <Text key="chip" size="footnote" weight="medium" tabular wrap="end">{text}</Text>, width: textWidth(text) }
       const c = chipSvg(icon, text)
-      return <Svg key="chip" source={c.source} alt={text} width={c.width} height={CHIP_H} />
+      return { node: <Svg key="chip" source={c.source} alt={text} width={c.width} height={CHIP_H} />, width: c.width }
     }
 
     /**
@@ -256,42 +255,33 @@ export const register: Register = on => {
      * the desktop app a transparent click layer (`./hit.ts`) lies over it; the
      * terminal gets a plain Button.
      */
-    const resetChip = (key: string, text: string) => {
+    const resetChip = (key: string, text: string): Extra => {
       const other = style === 'clock' ? 'countdown' : 'clock time'
       if (!Svg || !Client) {
-        return (
-          <Button key={`swap-${key}`} plain onPress={() => toggleStyle($)}>
-            <Text size="footnote" weight="medium" tabular>{`${text} ⇄`}</Text>
-          </Button>
-        )
+        return {
+          node: (
+            <Button key={`swap-${key}`} plain onPress={() => toggleStyle($)}>
+              <Text size="footnote" weight="medium" tabular>{`${text} ⇄`}</Text>
+            </Button>
+          ),
+          width: textWidth(text) + 12,
+        }
       }
       const c = chipSvg(style, text, { swap: true })
-      return (
-        <Box key={`swap-${key}`} position="relative" flexShrink={0}>
-          <Svg source={c.source} alt={`${text}, click to show ${other}`} width={c.width} height={CHIP_H} />
-          <Box key={`swap-${key}-hit`} position="absolute" top={0} left={0} right={0} bottom={0}>
-            <Client key={`hit-swap-${key}`} module="./hit.ts" props={{ action: 'swap' }} width="100%" height="100%" />
+      return {
+        node: (
+          <Box key={`swap-${key}`} position="relative" flexShrink={0}>
+            <Svg source={c.source} alt={`${text}, click to show ${other}`} width={c.width} height={CHIP_H} />
+            <Box key={`swap-${key}-hit`} position="absolute" top={0} left={0} right={0} bottom={0}>
+              <Client key={`hit-swap-${key}`} module="./hit.ts" props={{ action: 'swap' }} width="100%" height="100%" />
+            </Box>
           </Box>
-        </Box>
-      )
+        ),
+        width: c.width,
+      }
     }
 
-    // One meter at its own width, on one line.
-    const item = (key: string, name: string, pct: number | null, extra: RenderChildren) => {
-      const p = Math.max(0, Math.min(100, pct ?? 0))
-      return (
-        <Box key={key} flexDirection="row" flexWrap="nowrap" flexShrink={1} minWidth={0} alignItems="center" columnGap="sm">
-          {ring(p)}
-          {fit === 'wide' || fit === 'medium' ? <Text size="footnote" weight="medium" color="subtle" wrap="end">{name}</Text> : null}
-          <Text size="footnote" weight="semibold" tabular color={pct == null ? 'subtle' : tone(p)} wrap="end">
-            {pct == null ? '–' : `${Math.round(pct)}%`}
-          </Text>
-          {fit === 'tiny' ? null : extra}
-        </Box>
-      )
-    }
-
-    const items: RenderChildren[] = []
+    const specs: Spec[] = []
     if (!noPlan) {
       // Both limits always hold their place; a dash until a reading exists.
       for (const kind of ORDER) {
@@ -299,21 +289,52 @@ export const register: Register = on => {
         const pct = l ? live(l, now) : null
         const due = !!l?.resetsAt && Date.parse(l.resetsAt) <= now
         const when = l?.resetsAt && !due ? (style === 'countdown' ? countdown(l.resetsAt, now) : clockTime(l.resetsAt, now)) : null
-        const extra = due
+        const extra: Extra | null = due
           ? chip(style, 'reset')
           : when
             ? resetChip(kind, when)
             : !l && fit === 'wide'
-              ? <Text key="wait" size="footnote" color="subtle" wrap="end">after first reply</Text>
+              ? { node: <Text key="wait" size="footnote" color="subtle" wrap="end">after first reply</Text>, width: textWidth('after first reply') }
               : null
-        items.push(item(`lim-${kind}`, LABELS[kind] ?? kind, pct, extra))
+        specs.push({ key: `lim-${kind}`, mark: kind === 'five_hour' ? 'five_hour' : 'seven_day', name: LABELS[kind] ?? kind, pct, extra })
       }
     }
     // Context: the fill, worked out from the tokens when the percent is missing.
     const win = m.contextWindow > 0 ? m.contextWindow : null
     const ctxPct = m.contextPercent ?? (m.contextTokens != null && win ? (m.contextTokens / win) * 100 : null)
     const used = m.contextTokens == null ? null : fit === 'wide' && win ? `${fmt(m.contextTokens)} / ${fmt(win)}` : fmt(m.contextTokens)
-    items.push(item('ctx', 'Context', ctxPct, used ? chip('context', used) : null))
+    specs.push({ key: 'ctx', mark: 'context', name: 'Context', pct: ctxPct, extra: used ? chip('context', used) : null })
+
+    const showExtra = fit !== 'tiny'
+    // Labels move into the rings on the graphical surfaces only, and only when
+    // the full row would not fit the band.
+    const compact = !!Svg && fullWidth(specs, showExtra) > cols * CELL_PX
+    const showLabel = Svg ? !compact : fit === 'wide' || fit === 'medium'
+
+    const ring = (p: number, s: Spec) => {
+      if (!Svg) return null
+      const px = compact ? MARKED_RING_PX : RING_PX
+      const alt = compact ? `${s.name} ${Math.round(p)}% used` : `${Math.round(p)}% used`
+      return <Svg source={ringSvg(p, tone(p), compact ? s.mark : undefined)} alt={alt} width={px} height={px} />
+    }
+
+    // One meter at its own width, on one line; the percentage never cuts off.
+    const item = (s: Spec) => {
+      const p = Math.max(0, Math.min(100, s.pct ?? 0))
+      return (
+        <Box key={s.key} flexDirection="row" flexWrap="nowrap" flexShrink={1} minWidth={0} alignItems="center" columnGap="sm">
+          {ring(p, s)}
+          {showLabel ? <Text size="footnote" weight="medium" color="subtle" wrap="end">{s.name}</Text> : null}
+          <Box key="pct" flexShrink={0}>
+            <Text size="footnote" weight="semibold" tabular color={s.pct == null ? 'subtle' : tone(p)}>
+              {s.pct == null ? '–' : `${Math.round(s.pct)}%`}
+            </Text>
+          </Box>
+          {showExtra ? (s.extra?.node ?? null) : null}
+        </Box>
+      )
+    }
+    const items = specs.map(item)
 
     // Meters at their own width with equal gaps between them, each divider
     // in the middle of its gap, and the same gap at each end.
@@ -356,4 +377,30 @@ async function toggleStyle($: Api): Promise<void> {
     // Not saved; the bar keeps the style it had.
   }
   $.ui.invalidate('ui.render')
+}
+
+/** Something drawn after a meter's percentage, with its width in CSS pixels. */
+type Extra = { node: RenderChildren; width: number }
+/** One meter before it is drawn. */
+type Spec = { key: string; mark: RingMark; name: string; pct: number | null; extra: Extra | null }
+
+/**
+ * CSS pixels per band column in the desktop app, which gives the band's width
+ * in cells of its code font: about this wide at the font's size.
+ */
+const CELL_PX = 7.8
+/** The gap between a meter's parts (`sm`), and the least gap between meters. */
+const PART_GAP = 8
+const METER_GAP = 12
+
+/** How wide the row is with every label written out, in CSS pixels. */
+export function fullWidth(specs: readonly Spec[], withExtra: boolean): number {
+  let w = 0
+  for (const s of specs) {
+    // Labels and percentages are footnote text, a shade larger than the chips' 12px.
+    const pct = s.pct == null ? '–' : `${Math.round(s.pct)}%`
+    w += RING_PX + PART_GAP + textWidth(s.name) * 1.08 + PART_GAP + textWidth(pct) * 1.08
+    if (withExtra && s.extra) w += PART_GAP + s.extra.width
+  }
+  return w + (specs.length + 1) * METER_GAP + (specs.length - 1)
 }

@@ -194,3 +194,35 @@ test('the context figure is not a switch', async ($, on) => {
   expect((await alts(ui)).some(a => a.includes('click to show'))).toBe(false)
   await ui.unmount()
 })
+
+test('a narrow desktop band moves the labels into the rings; a wide one keeps them', async ($, on) => {
+  on('clock.now', () => ({ value: NOW }))
+  on('session.usage', () => ({ value: { startedAt: NOW, context: { tokens: 422_000, window: 1_000_000, percent: 42 }, rateLimits: [] } }))
+  on('store.get', (_, e) => ({
+    value: e.key === 'limits'
+      ? { savedAt: NOW - 60_000, limits: [
+          { kind: 'five_hour', percentUsed: 14, resetsAt: '2026-11-18T23:20:00Z' },
+          { kind: 'seven_day', percentUsed: 63, resetsAt: '2026-11-21T08:00:00Z' },
+        ] }
+      : undefined,
+  }))
+  const at = (bodyColumns: number, surface: 'desktop' | 'terminal') =>
+    $.ui.mount({ ...BAND, surface, props: { ...BAND.props, bodyColumns } })
+
+  const wide = await at(120, 'desktop')
+  expect(await wide.find({ type: 'Text', text: '5-hour limit' })).toBeDefined()
+  expect((await alts(wide)).includes('14% used')).toBe(true)
+  await wide.unmount()
+
+  const narrow = await at(75, 'desktop')
+  expect(await narrow.find({ type: 'Text', text: '5-hour limit' })).toBeUndefined()
+  const a = await alts(narrow)
+  for (const s of ['5-hour limit 14% used', 'Weekly 63% used', 'Context 42% used']) expect(a.includes(s)).toBe(true)
+  for (const s of ['14%', '63%', '42%']) expect(await narrow.find({ type: 'Text', text: s })).toBeDefined()
+  await narrow.unmount()
+
+  // The terminal has no rings to hold a label: it keeps going by its columns.
+  const term = await at(75, 'terminal')
+  expect(await term.find({ type: 'Text', text: '5-hour limit' })).toBeDefined()
+  await term.unmount()
+})
